@@ -1,17 +1,17 @@
 const express = require('express');
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 const template = require('./template');
 const sanitizeHtml = require('sanitize-html');
 const mysql = require('mysql2');
 
-// [생성형 AI 활용] MySQL 접속 설정 (확인된 학생 DB 포트 3402 및 sunrin_library DB 연동)
 const db = mysql.createConnection({
-  host     : 'localhost',
-  user     : 'root',
-  password : 'sunrin',
-  database : 'sunrin_library', // [추가 학습/수정] 새로 구축한 도서관 관리 DB명
-  port     : 3402               // [추가 학습/수정] 학생 고유 포트 3402 적용
+  host     : 'mysql-3a11cfa6-sunrint-4094.h.aivencloud.com',
+  user     : 'avnadmin',
+  password : '본인의_Aiven_비밀번호', // ⚠️ Aiven의 실제 비밀번호
+  database : 'defaultdb',
+  port     : 18195,                     // ⚠️ 본인 Aiven 포트 번호
+  ssl      : { rejectUnauthorized: false } // ⚠️ Aiven SSL 필수 설정
 });
 db.connect();
 
