@@ -14,8 +14,8 @@ const db = mysql.createConnection({
   ssl      : { rejectUnauthorized: false } // ⚠️ Aiven SSL 필수 설정
 });
 db.connect();
-// Aiven DB에 book 테이블이 없으면 자동 생성하는 코드
-const createTableQuery = `
+// Aiven DB에 book 및 bookshelf 테이블 자동 생성 코드
+const createBookTable = `
 CREATE TABLE IF NOT EXISTS book (
   id INT NOT NULL AUTO_INCREMENT,
   title VARCHAR(255) NOT NULL,
@@ -26,9 +26,23 @@ CREATE TABLE IF NOT EXISTS book (
   PRIMARY KEY (id)
 );`;
 
-db.query(createTableQuery, (err) => {
-  if (err) console.error('테이블 생성 실패:', err);
+const createBookshelfTable = `
+CREATE TABLE IF NOT EXISTS bookshelf (
+  id INT NOT NULL AUTO_INCREMENT,
+  title VARCHAR(255) NOT NULL,
+  description TEXT NULL,
+  created DATETIME NOT NULL,
+  PRIMARY KEY (id)
+);`;
+
+db.query(createBookTable, (err) => {
+  if (err) console.error('book 테이블 생성 실패:', err);
   else console.log('book 테이블 준비 완료');
+});
+
+db.query(createBookshelfTable, (err) => {
+  if (err) console.error('bookshelf 테이블 생성 실패:', err);
+  else console.log('bookshelf 테이블 준비 완료');
 });
 
 app.use(express.urlencoded({ extended: true }));
