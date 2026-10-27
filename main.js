@@ -14,6 +14,22 @@ const db = mysql.createConnection({
   ssl      : { rejectUnauthorized: false } // ⚠️ Aiven SSL 필수 설정
 });
 db.connect();
+// Aiven DB에 book 테이블이 없으면 자동 생성하는 코드
+const createTableQuery = `
+CREATE TABLE IF NOT EXISTS book (
+  id INT NOT NULL AUTO_INCREMENT,
+  title VARCHAR(255) NOT NULL,
+  description TEXT NULL,
+  created DATETIME NOT NULL,
+  author VARCHAR(50) NULL,
+  profile VARCHAR(200) NULL,
+  PRIMARY KEY (id)
+);`;
+
+db.query(createTableQuery, (err) => {
+  if (err) console.error('테이블 생성 실패:', err);
+  else console.log('book 테이블 준비 완료');
+});
 
 app.use(express.urlencoded({ extended: true }));
 
