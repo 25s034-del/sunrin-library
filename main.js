@@ -13,61 +13,70 @@ const db = mysql.createConnection({
   port     : 18195,
   ssl      : { rejectUnauthorized: false }
 });
-db.connect();
 
-// 1. Aiven DB 테이블 및 기본 데이터 자동 생성
-const createBookshelfTable = `
-CREATE TABLE IF NOT EXISTS bookshelf (
-  id INT NOT NULL AUTO_INCREMENT,
-  zone VARCHAR(50) NOT NULL,
-  floor INT NOT NULL DEFAULT 1,
-  PRIMARY KEY (id)
-);`;
+db.connect((err) => {
+  if (err) {
+    console.error('DB 연결 실패:', err);
+    return;
+  }
+  console.log('Aiven MySQL 연결 성공!');
+  initDatabase(); // 연결 직후 순서대로 테이블 및 데이터 생성
+});
 
-const createCategoryTable = `
-CREATE TABLE IF NOT EXISTS category (
-  id INT NOT NULL AUTO_INCREMENT,
-  category_name VARCHAR(100) NOT NULL,
-  PRIMARY KEY (id)
-);`;
+// 1. 순차적 DB 테이블 및 초기 데이터 생성 함수
+function initDatabase() {
+  const createBookshelf = `
+  CREATE TABLE IF NOT EXISTS bookshelf (
+    id INT NOT NULL AUTO_INCREMENT,
+    zone VARCHAR(50) NOT NULL,
+    floor INT NOT NULL DEFAULT 1,
+    PRIMARY KEY (id)
+  );`;
 
-const createBookTable = `
-CREATE TABLE IF NOT EXISTS book (
-  id INT NOT NULL AUTO_INCREMENT,
-  title VARCHAR(255) NOT NULL,
-  author VARCHAR(100) NOT NULL,
-  publisher VARCHAR(100) NULL,
-  created DATETIME NOT NULL,
-  bookshelf_id INT NULL,
-  category_id INT NULL,
-  PRIMARY KEY (id)
-);`;
+  const createCategory = `
+  CREATE TABLE IF NOT EXISTS category (
+    id INT NOT NULL AUTO_INCREMENT,
+    category_name VARCHAR(100) NOT NULL,
+    PRIMARY KEY (id)
+  );`;
 
-db.query(createBookshelfTable, (err) => {
-  if (err) console.error('bookshelf 테이블 생성 에러:', err);
-  else {
-    console.log('bookshelf 테이블 준비 완료');
+  const createBook = `
+  CREATE TABLE IF NOT EXISTS book (
+    id INT NOT NULL AUTO_INCREMENT,
+    title VARCHAR(255) NOT NULL,
+    author VARCHAR(100) NOT NULL,
+    publisher VARCHAR(100) NULL,
+    created DATETIME NOT NULL,
+    bookshelf_id INT NULL,
+    category_id INT NULL,
+    PRIMARY KEY (id)
+  );`;
+
+  // (1) 서가 테이블 생성 -> 기본 데이터 삽입
+  db.query(createBookshelf, () => {
+    console.log('bookshelf 테이블 확인 완료');
     db.query("INSERT IGNORE INTO bookshelf (id, zone, floor) VALUES (1, 'A구역 (문학)', 1), (2, 'B구역 (과학)', 2), (3, 'C구역 (IT/컴퓨터)', 2)");
-  }
-});
+  });
 
-db.query(createCategoryTable, (err) => {
-  if (err) console.error('category 테이블 생성 에러:', err);
-  else {
-    console.log('category 테이블 준비 완료');
+  // (2) 카테고리 테이블 생성 -> 기본 데이터 삽입
+  db.query(createCategory, () => {
+    console.log('category 테이블 확인 완료');
     db.query("INSERT IGNORE INTO category (id, category_name) VALUES (1, '소설'), (2, '인문학'), (3, '전공/기술'), (4, '기타')");
-  }
-});
+  });
 
-db.query(createBookTable, (err) => {
-  if (err) console.error('book 테이블 생성 에러:', err);
-  else {
-    console.log('book 테이블 준비 완료');
-    db.query("ALTER TABLE book ADD COLUMN IF NOT EXISTS publisher VARCHAR(100) NULL");
-    db.query("ALTER TABLE book ADD COLUMN IF NOT EXISTS bookshelf_id INT NULL");
-    db.query("ALTER TABLE book ADD COLUMN IF NOT EXISTS category_id INT NULL");
-  }
-});
+  // (3) 도서 테이블 생성 -> 부족한 컬럼 확실히 추가 (에러 무시 처리)
+  db.query(createBook, () => {
+    console.log('book 테이블 확인 완료');
+    const alterQueries = [
+      "ALTER TABLE book ADD COLUMN publisher VARCHAR(100) NULL",
+      "ALTER TABLE book ADD COLUMN bookshelf_id INT NULL",
+      "ALTER TABLE book ADD COLUMN category_id INT NULL"
+    ];
+    alterQueries.forEach(q => {
+      db.query(q, () => {}); // 이미 존재하더라도 에러로 무너지지 않게 빈 콜백 처리
+    });
+  });
+}
 
 process.on('uncaughtException', (err) => {
   console.error('예외 발생 (서버 유지됨):', err);
@@ -84,6 +93,7 @@ function menu(id, callback) {
     callback(template.menu(results, id));
   });
 }
+
 // 2. 라우터 핸들러 (CRUD & JOIN)
 app.get('/', (req, res) => {
   menu(null, function(menuHtml){
@@ -96,9 +106,9 @@ app.get('/', (req, res) => {
 
 app.get('/create', (req, res) => {
   db.query('SELECT * FROM bookshelf', function(err, bookshelves){
-    if (err) bookshelves = [];
+    if (err || !bookshelves) bookshelves = [];
     db.query('SELECT * FROM category', function(err, categories){
-      if (err) categories = [];
+      if (err || !categories) categories = [];
       menu(null, function(menuHtml){
         res.send(template.html(menuHtml, template.create(bookshelves, categories)));
       });    
@@ -117,8 +127,8 @@ app.post('/create', (req, res) => {
     'INSERT INTO book (title, author, publisher, created, bookshelf_id, category_id) VALUES (?, ?, ?, NOW(), ?, ?)',
     [title, author, publisher, bookshelf_id, category_id], function (err, results) {
       if (err) {
-        console.error('도서 등록 에러:', err);
-        return res.status(500).send('도서 등록 중 오류가 발생했습니다.');
+        console.error('도서 등록 에러 상세:', err);
+        return res.status(500).send(`도서 등록 중 오류가 발생했습니다: ${err.message}`);
       }
       res.redirect(`/${results.insertId}`);
     }
@@ -128,13 +138,13 @@ app.post('/create', (req, res) => {
 app.get('/update/:id', (req, res) => {
   const id = Number(req.params.id);
   db.query('SELECT * FROM book WHERE id=?', [id], function (err, results) {
-    if (err || results.length === 0) { return res.status(404).send('404 Not Found'); }
+    if (err || !results || results.length === 0) { return res.status(404).send('404 Not Found'); }
     const book = results[0];
 
     db.query('SELECT * FROM bookshelf', function(err, bookshelves){
-      if (err) bookshelves = [];
+      if (err || !bookshelves) bookshelves = [];
       db.query('SELECT * FROM category', function(err, categories){
-        if (err) categories = [];
+        if (err || !categories) categories = [];
         menu(null, function(menuHtml){
           res.send(template.html(menuHtml, template.update(book, bookshelves, categories)));
         });    
@@ -157,102 +167,3 @@ app.post('/update', (req, res) => {
       if (err) {
         console.error('수정 에러:', err);
         return res.status(500).send('수정 처리 중 오류가 발생했습니다.');
-      }
-      res.redirect(`/${id}`);
-    }
-  );
-});
-
-app.get('/delete/:id', (req, res) => {
-  const id = Number(req.params.id);
-  db.query('SELECT * FROM book WHERE id=?', [id], function (err, results) {
-    if (err || results.length === 0) { return res.status(404).send('404 Not Found'); }
-    const book = results[0];        
-    menu(id, function(menuHtml){
-      res.send(template.html(menuHtml, template.delete(book)));
-    });
-  });
-});
-
-app.post('/delete', (req, res) => {
-  const id = Number(req.body.id);
-  db.query('DELETE FROM book WHERE id=?', [id], function (err, results) {
-    if (err) {
-      console.error('삭제 에러:', err);
-      return res.status(500).send('삭제 처리 중 오류가 발생했습니다.');
-    }
-    res.redirect(`/`);
-  });
-});
-
-app.get('/bookshelf', (req, res) => {    
-  db.query(`
-    SELECT bs.id, bs.zone, bs.floor, COUNT(b.id) AS book_count
-    FROM bookshelf bs 
-    LEFT JOIN book b ON bs.id = b.bookshelf_id
-    GROUP BY bs.id, bs.zone, bs.floor
-  `, function(err, bookshelves){
-    if (err) bookshelves = [];
-    menu(null, function(menuHtml){
-      let list = `<h2>서가 목록 및 보유 수량 (통계)</h2><ul>`;
-      for (let i = 0; i < bookshelves.length; i++){
-        list += `<li>
-          <a href='/bookshelf/${bookshelves[i].id}'>
-            ${bookshelves[i].zone} (${bookshelves[i].floor}층) - 보관 도서 수: ${bookshelves[i].book_count}권
-          </a>                
-        </li>`;
-      }
-      list += '</ul>';
-      res.send(template.html(menuHtml, list));
-    });
-  });
-});
-
-app.get('/bookshelf/:id', (req, res) => {
-  const id = Number(req.params.id);    
-  db.query(`
-    SELECT b.id, b.title, b.author, bs.zone, bs.floor 
-    FROM book b
-    RIGHT JOIN bookshelf bs ON b.bookshelf_id = bs.id 
-    WHERE bs.id = ?
-  `, [id], function(err, results){
-    if (err || results.length === 0){
-      return res.status(404).send('404 Not Found');
-    }
-    menu(null, function(menuHtml){
-      let list = `<h2>${results[0].zone} (${results[0].floor}층) 서가 도서 목록</h2><ul>`;
-      if (results[0].title === null){
-        list += '<li>배치된 도서가 없습니다.</li>';
-      } else {
-        for (let i = 0; i < results.length; i++){
-          list += `<li><a href='/${results[i].id}'>${results[i].title}</a> - 저자: ${results[i].author}</li>`;
-        }
-      }
-      list += '</ul>';
-      res.send(template.html(menuHtml, list));
-    });
-  });
-});
-
-app.get('/:id', (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id)) { return res.status(404).send('404 Not Found'); } 
-
-  db.query(`
-    SELECT b.*, bs.zone, bs.floor, c.category_name 
-    FROM book b
-    LEFT JOIN bookshelf bs ON b.bookshelf_id = bs.id 
-    LEFT JOIN category c ON b.category_id = c.id
-    WHERE b.id = ?
-  `, [id], function (err, results) {
-    if (err || results.length === 0) { return res.status(404).send('404 Not Found'); }
-    const book = results[0];
-    menu(id, function(menuHtml){
-      res.send(template.html(menuHtml, template.read(book)));
-    });        
-  });    
-});
-
-app.listen(port, () => {
-  console.log(`도서관 관리 서버가 포트 ${port}에서 실행 중입니다.`);
-});
