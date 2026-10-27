@@ -8,7 +8,7 @@ const mysql = require('mysql2');
 const db = mysql.createConnection({
   host     : 'mysql-3a11cfa6-sunrint-4094.h.aivencloud.com',
   user     : 'avnadmin',
-  password : '본인의_Aiven_비밀번호', // ⚠️ Aiven의 실제 비밀번호
+  password : 'AVNS_REnaUoRf1Fh_mgpU6KQ', // ⚠️ Aiven의 실제 비밀번호
   database : 'defaultdb',
   port     : 18195,                     // ⚠️ 본인 Aiven 포트 번호
   ssl      : { rejectUnauthorized: false } // ⚠️ Aiven SSL 필수 설정
